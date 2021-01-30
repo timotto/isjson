@@ -1,0 +1,317 @@
+temp:
+  repo: &repo
+    type: git
+    icon: github
+    webhook_token: ((webhook_token))
+    check_every: 24h
+  repo_source: &repo_source
+    uri: git@github.com:timotto/isjson.git
+    private_key: ((github.private_key))
+    branch: master
+  semver: &semver
+    type: semver
+    icon: numeric
+  semver_source: &semver_source
+    access_key_id: ((minio.access_key_id))
+    bucket: versions
+    driver: s3
+    endpoint: ((minio.endpoint))
+    region_name: ((minio.region_name))
+    secret_access_key: ((minio.secret_access_key))
+    initial_version: 0.0.1
+  image: &image
+    type: remote-docker-image
+    icon: bucket
+  image_source: &image_source
+    username: ((dockerhub.username))
+    password: ((dockerhub.password))
+    dockerd: ((dockerd))
+  chart: &chart
+    type: s3
+    icon: map-legend
+  chart_source: &chart_source
+    bucket: ((chartsbucket.bucket))
+    access_key_id: ((chartsbucket.key))
+    secret_access_key: ((chartsbucket.secret))
+    region_name: ((chartsbucket.region))
+  helm: &helm
+    type: helm
+    check_every: 24h
+    icon: factory
+  helm_source: &helm_source
+    admin_cert: ((helm-rpi.admin_cert))
+    admin_key: ((helm-rpi.admin_key))
+    cluster_ca: ((helm-rpi.cluster_ca))
+    cluster_url: ((helm-rpi.cluster_url))
+    stable_repo: false
+    repos:
+    - name: isjson-charts
+      url: ((charts.url))
+  deploy_params: &deploy_params
+    chart: isjson-charts/isjson
+    version: chart-version/version
+    wait_until_ready: 300
+    check_is_ready: true
+    replace: true
+
+  slack: &slack
+    on_failure:
+      put: slack
+      params:
+        channel: "#monitoring"
+        alert_type: failed
+    on_abort:
+      put: slack
+      params:
+        channel: "#monitoring"
+        alert_type: aborted
+  slack_all: &slack_all
+    <<: *slack
+    on_success:
+      put: slack
+      params:
+        channel: "#feed"
+        alert_type: success
+  rc_version_params: &rc_version_params
+    params:
+      pre: rc
+
+resources:
+- name: app-source
+  <<: *repo
+  source:
+    <<: *repo_source
+    paths:
+    - app
+
+- name: app-artifact
+  <<: *image
+  source:
+    <<: *image_source
+    repository: isjsonapp/isjson
+
+- name: app-version
+  <<: *semver
+  source:
+    <<: *semver_source
+    key: isjson/app
+
+- name: chart-source
+  <<: *repo
+  source:
+    <<: *repo_source
+    paths:
+    - helm/isjson
+
+- name: chart-artifact
+  <<: *chart
+  source:
+    <<: *chart_source
+    regexp: isjson-(.*).tgz
+
+- name: chart-version
+  <<: *semver
+  source:
+    <<: *semver_source
+    key: isjson/chart
+
+- name: pipeline-source
+  <<: *repo
+  source:
+    <<: *repo_source
+    paths:
+    - ci/pipeline.yml
+
+- name: dev
+  <<: *helm
+  source:
+    <<: *helm_source
+    namespace: isjson-dev
+    release: isjson-dev
+
+- name: prod
+  <<: *helm
+  source:
+    <<: *helm_source
+    namespace: isjson
+    release: isjson
+
+- name: slack
+  type: slack
+  icon: bullhorn-outline
+  source:
+    url: ((slack.low_prio_webhook_url))
+
+jobs:
+- name: chart
+  serial: true
+  plan:
+  -
+    <<: *slack
+    do:
+    - in_parallel:
+      - get: chart-source
+        trigger: true
+      - get: chart-version
+        <<: *rc_version_params
+    - task: build
+      config:
+        platform: linux
+        image_resource:
+          type: registry-image
+          source:
+            repository: thorstenhans/helm3
+            tag: latest
+        inputs:
+        - name: chart-source
+        - name: chart-version
+        outputs:
+        - name: chart
+        run:
+          path: sh
+          user: root
+          args:
+          - -ec
+          - |
+            chart_version=$(cat chart-version/version)
+            helm lint chart-source/helm/isjson
+            helm package --destination chart --version "$chart_version" chart-source/helm/isjson
+    - in_parallel:
+      - put: chart-artifact
+        params:
+          file: chart/isjson-*.tgz
+          acl: public-read
+      - put: chart-version
+        <<: *rc_version_params
+
+- name: app
+  serial: true
+  serial_groups: [app-version]
+  plan:
+  -
+    <<: *slack
+    do:
+    - in_parallel:
+      - get: app-source
+        trigger: true
+      - get: app-version
+        <<: *rc_version_params
+    - in_parallel:
+      - put: app-artifact
+        params:
+          build: app-source/app
+          tag_as_latest: false
+          tag_prefix: v
+          tag: app-version/version
+        get_params:
+          skip_download: true
+      - put: app-version
+        <<: *rc_version_params
+
+- name: dev
+  serial: true
+  plan:
+  -
+    <<: *slack_all
+    do:
+    - in_parallel:
+      - get: app-version
+        trigger: true
+        passed: [app]
+      - get: chart-version
+        trigger: true
+        passed: [chart]
+    - put: dev
+      params:
+        <<: *deploy_params
+        override_values:
+        - key: image.version
+          path: app-version/version
+          type: string
+        - key: ingress.enabled
+          value: true
+        - key: ingress.hosts[0].paths
+          value: "{/}"
+        - key: ingress.hosts[0].host
+          value: ((dev.ingress_host))
+          hide: true
+
+- name: release
+  serial: true
+  serial_groups: [app-version]
+  plan:
+  -
+    <<: *slack_all
+    do:
+    - in_parallel:
+      - get: app-version
+        passed: [dev]
+      - get: chart-version
+        passed: [dev]
+
+- name: bump
+  serial: true
+  serial_groups: [app-version]
+  plan:
+  - get: app-version
+    passed: [release]
+    trigger: true
+  - put: app-version
+    params:
+      bump: patch
+
+- name: prod
+  serial: true
+  plan:
+  -
+    <<: *slack_all
+    do:
+    - in_parallel:
+      - get: app-version
+        trigger: true
+        passed: [release]
+      - get: chart-version
+        trigger: true
+        passed: [release]
+    - put: prod
+      params:
+        <<: *deploy_params
+        override_values:
+        - key: image.version
+          path: app-version/version
+          type: string
+        - key: ingress.enabled
+          value: true
+        - key: ingress.hosts[0].paths
+          value: "{/}"
+        - key: ingress.hosts[0].host
+          value: ((prod.ingress_host))
+          hide: true
+
+- name: pipeline
+  serial: true
+  plan:
+  -
+    <<: *slack_all
+    do:
+    - get: pipeline-source
+      trigger: true
+    - set_pipeline: isjson
+      file: pipeline-source/ci/pipeline.yml
+
+resource_types:
+- name: slack
+  type: registry-image
+  source:
+    repository: arbourd/concourse-slack-alert-resource
+
+- name: helm
+  type: registry-image
+  source:
+    repository: typositoire/concourse-helm3-resource
+
+- name: remote-docker-image
+  type: registry-image
+  privileged: true
+  source:
+    repository: timotto/docker-image-resource

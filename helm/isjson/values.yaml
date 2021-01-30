@@ -5,10 +5,9 @@
 replicaCount: 2
 
 image:
-  repository: timotto/isjson
+  repository: isjsonapp/isjson
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  version: "0.0.1-rc.1"
 
 imagePullSecrets: []
 nameOverride: ""

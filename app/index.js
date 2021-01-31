@@ -9,7 +9,7 @@ const app = express();
 
 const main = () => {
   events.on('message', messageHandler)
-  events.on('app_mention', messageHandler)
+  events.on('app_mention', mentionHandler)
   events.on('error', console.error)
 
   app.use('/slack', events.expressMiddleware());
@@ -18,6 +18,28 @@ const main = () => {
 }
 
 const messageHandler = async event => {
+  console.log(JSON.stringify(event));
+
+  const quotedText = textOnly(event)
+
+  const plainText = noQuotes(quotedText)
+
+  const matches = isJson(plainText)
+
+  if (event.channel_type === 'im') {
+    const reaction = matches
+      ? 'thumbsup'
+      : 'thumbsdown'
+
+    await reactTo(event, reaction)
+  } else if (matches) {
+    const reaction = 'json'
+
+    await reactTo(event, reaction)
+  }
+}
+
+const mentionHandler = async event => {
   console.log(JSON.stringify(event));
 
   const quotedText = textOnly(event)

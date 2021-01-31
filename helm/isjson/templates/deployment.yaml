@@ -58,6 +58,8 @@ spec:
                 secretKeyRef:
                   key: slack_signing_secret
                   name: {{ .Values.configSecretName }}
+`            - name: LOG_LEVEL
+              value: {{ .Values.logLevel }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

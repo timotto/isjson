@@ -5,6 +5,7 @@ const express = require('express')
 const events = createEventAdapter(process.env.SLACK_SIGNING_SECRET)
 const web = new WebClient(process.env.SLACK_TOKEN)
 const port = process.env.PORT || 8080
+const logLevel = process.env.LOG_LEVEL || 'ERROR'
 const app = express();
 
 const main = () => {
@@ -18,7 +19,7 @@ const main = () => {
 }
 
 const messageHandler = async event => {
-  console.log(JSON.stringify(event));
+  logVerbose(JSON.stringify(event));
 
   const quotedText = textOnly(event)
 
@@ -40,7 +41,7 @@ const messageHandler = async event => {
 }
 
 const mentionHandler = async event => {
-  console.log(JSON.stringify(event));
+  logVerbose(JSON.stringify(event));
 
   const quotedText = textOnly(event)
 
@@ -51,6 +52,10 @@ const mentionHandler = async event => {
     : 'thumbsdown'
 
   await reactTo(event, reaction)
+}
+
+const logVerbose = args => {
+  if (logLevel === 'VERBOSE') console.log(...args)
 }
 
 const textOnly = event =>

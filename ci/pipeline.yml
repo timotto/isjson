@@ -235,6 +235,8 @@ jobs:
         - key: ingress.hosts[0].host
           value: ((dev.ingress_host))
           hide: true
+        - key: logLevel
+          value: VERBOSE
 
 - name: release
   serial: true

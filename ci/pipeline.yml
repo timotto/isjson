@@ -249,6 +249,7 @@ jobs:
               os: linux
               digest_file: app-artifact-arm/digest
             - arch: arm64
+              variant: v8
               os: linux
               digest_file: app-artifact-arm64/digest
       - put: app-version

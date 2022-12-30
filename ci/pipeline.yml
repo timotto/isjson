@@ -25,7 +25,9 @@ temp:
   image_source: &image_source
     username: ((dockerhub.username))
     password: ((dockerhub.password))
-    dockerd: ((dockerd))
+  image_manifest: &image_manifest
+    type: docker-manifest
+    icon: bucket
   chart: &chart
     type: s3
     icon: map-legend
@@ -84,9 +86,23 @@ resources:
     - app
 
 - name: app-artifact
+  <<: *image_manifest
+  source:
+    <<: *image_source
+    repository: isjsonapp/isjson
+
+- name: app-artifact-arm
   <<: *image
   source:
     <<: *image_source
+    dockerd: ((dockerd))
+    repository: isjsonapp/isjson
+
+- name: app-artifact-arm64
+  <<: *image
+  source:
+    <<: *image_source
+    dockerd: ((dockerd-arm64))
     repository: isjsonapp/isjson
 
 - name: app-version
@@ -195,15 +211,46 @@ jobs:
         trigger: true
       - get: app-version
         <<: *rc_version_params
+    - task: tag-file
+      config:
+        platform: linux
+        image_resource:
+          type: registry-image
+          source: {repository: alpine}
+        inputs: [{name: app-version}]
+        outputs: [{name: tag-file}]
+        run:
+          path: sh
+          args:
+          - -ec
+          - |
+            echo "v$(cat app-version/version)" | tee tag-file/tag-file
     - in_parallel:
-      - put: app-artifact
-        params:
-          build: app-source/app
-          tag_as_latest: false
-          tag_prefix: v
-          tag: app-version/version
-        get_params:
-          skip_download: true
+      - do:
+        - in_parallel:
+          - put: app-artifact-arm
+            params:
+              build: app-source/app
+              tag_as_latest: false
+            get_params:
+              skip_download: true
+          - put: app-artifact-arm64
+            params:
+              build: app-source/app
+              tag_as_latest: false
+            get_params:
+              skip_download: true
+        - put: app-artifact
+          params:
+            tag_file: tag-file/tag-file
+            manifests:
+            - arch: arm
+              variant: v7
+              os: linux
+              digest_file: app-artifact-arm/digest
+            - arch: arm64
+              os: linux
+              digest_file: app-artifact-arm64/digest
       - put: app-version
         <<: *rc_version_params
 
@@ -317,3 +364,9 @@ resource_types:
   privileged: true
   source:
     repository: timotto/docker-image-resource
+
+- name: docker-manifest
+  type: registry-image
+  source:
+    repository: timotto/concourse-docker-manifest-resource
+    tag: private-registry

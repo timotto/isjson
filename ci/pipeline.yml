@@ -41,7 +41,7 @@ temp:
   helm_source: &helm_source
     admin_cert: ((helm-rpi.admin_cert))
     admin_key: ((helm-rpi.admin_key))
-    cluster_ca: ((helm-rpi.cluster_ca))
+    cluster_ca_base64: ((helm-rpi.cluster_ca))
     cluster_url: ((helm-rpi.cluster_url))
     stable_repo: false
     repos:
@@ -52,7 +52,6 @@ temp:
     version: chart-version/version
     wait_until_ready: 300
     check_is_ready: true
-    replace: true
 
   slack: &slack
     on_failure:
@@ -310,7 +309,8 @@ resource_types:
 - name: helm
   type: registry-image
   source:
-    repository: typositoire/concourse-helm3-resource
+    repository: ghcr.io/typositoire/concourse-helm3-resource
+    tag: v1.26.1
 
 - name: remote-docker-image
   type: registry-image

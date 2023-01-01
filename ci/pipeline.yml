@@ -29,13 +29,12 @@ temp:
     type: docker-manifest
     icon: bucket
   chart: &chart
-    type: s3
+    type: chartmuseum
     icon: map-legend
   chart_source: &chart_source
-    bucket: ((chartsbucket.bucket))
-    access_key_id: ((chartsbucket.key))
-    secret_access_key: ((chartsbucket.secret))
-    region_name: ((chartsbucket.region))
+    server_url: ((charts-repo.url))/api/charts
+    basic_auth_username: ((charts-repo.username))
+    basic_auth_password: ((charts-repo.password))
   helm: &helm
     type: helm
     check_every: 24h
@@ -48,7 +47,7 @@ temp:
     stable_repo: false
     repos:
     - name: isjson-charts
-      url: ((charts.url))
+      url: ((charts-repo.url))
   deploy_params: &deploy_params
     chart: isjson-charts/isjson
     version: chart-version/version
@@ -122,7 +121,7 @@ resources:
   <<: *chart
   source:
     <<: *chart_source
-    regexp: isjson-(.*).tgz
+    chart_name: isjson
 
 - name: chart-version
   <<: *semver
@@ -190,12 +189,14 @@ jobs:
           - |
             chart_version=$(cat chart-version/version)
             helm lint chart-source/helm/isjson
-            helm package --destination chart --version "$chart_version" chart-source/helm/isjson
+            mkdir -p temp/chart
+            helm package --destination tmp/chart --version "$chart_version" chart-source/helm/isjson
+            cp -v tmp/chart/isjson-*.tgz chart/isjson.tgz
     - in_parallel:
       - put: chart-artifact
         params:
-          file: chart/isjson-*.tgz
-          acl: public-read
+          chart: chart/isjson.tgz
+          version_file: chart-version/version
       - put: chart-version
         <<: *rc_version_params
 
@@ -371,3 +372,8 @@ resource_types:
   source:
     repository: timotto/concourse-docker-manifest-resource
     tag: private-registry
+
+- name: chartmuseum
+  type: registry-image
+  source:
+    repository: cathive/concourse-chartmuseum-resource

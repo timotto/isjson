@@ -11,8 +11,9 @@ metadata:
   name: {{ $fullName }}
   labels:
     {{- include "isjson.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
   annotations:
+    kubernetes.io/ingress.class: {{.Values.ingress.class}}
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
